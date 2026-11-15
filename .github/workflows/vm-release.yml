@@ -7,8 +7,8 @@ name: Build and publish the class VM
 # Inputs it needs, all in the course repository:
 #   - main (or the ref given): course/, kit/, ova/build-ova.sh, ova/update-ova.sh, ova/test-ova.sh, course/assemble/make.py
 #   - branches grafana-deb, kafka-tgz, firefox-deb: the large files the VM carries, in pieces with checksums
-# Read with secret STARTER_COURSES_READ_TOKEN (fine-grained, jrock9000/pmity-starter-courses only, Contents read-only),
-# passed per command and never stored. Nothing private is published: only the .ova pieces, its checksum and the two
+# Read with secret STARTER_COURSES_DEPLOY_KEY (a read-only deploy key on jrock9000/pmity-starter-courses; no expiry),
+# written to the runner's temp folder and removed after the fetch. Nothing private is published: only the .ova pieces, its checksum and the two
 # assemble scripts. The course source, workbook and instructor material stay in the course repository.
 #
 # Release tag: starter-vm-<first 12 of the .ova's SHA-256>. debootstrap installs the archive's packages of the day, so
@@ -66,24 +66,26 @@ jobs:
       - name: Fetch the course and the large files
         id: course
         env:
-          TOKEN: ${{ secrets.STARTER_COURSES_READ_TOKEN }}
-          REF: ${{ inputs.course_ref }}
+          DEPLOY_KEY: ${{ secrets.STARTER_COURSES_DEPLOY_KEY }}
+          REF: ${{ inputs.course_ref || 'main' }}
         run: |
           set -euo pipefail
-          if [ -z "$TOKEN" ]; then echo "::error::secret STARTER_COURSES_READ_TOKEN is not set"; exit 1; fi
-          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
-          echo "::add-mask::$auth"
-          g() { git -c "http.https://github.com/.extraheader=$auth" "$@"; }
-          g clone --quiet --no-checkout --filter=blob:none "https://github.com/${COURSE_REPO}.git" "$W/course"
+          if [ -z "$DEPLOY_KEY" ]; then echo "::error::secret STARTER_COURSES_DEPLOY_KEY is not set"; exit 1; fi
+          # Read-only deploy key of the course repository: one repository, read only, no expiry. Lives only in RUNNER_TEMP.
+          k="$RUNNER_TEMP/course-key"; (umask 077; printf '%s\n' "$DEPLOY_KEY" > "$k")
+          ssh-keyscan -t ed25519 github.com > "$RUNNER_TEMP/known_hosts" 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i $k -o IdentitiesOnly=yes -o UserKnownHostsFile=$RUNNER_TEMP/known_hosts"
+          git clone --quiet --no-checkout --filter=blob:none "git@github.com:${COURSE_REPO}.git" "$W/course"
           cd "$W/course"
-          g fetch --quiet origin "$REF"
-          g checkout --quiet FETCH_HEAD
+          git fetch --quiet origin "$REF"
+          git checkout --quiet FETCH_HEAD
           sha=$(git rev-parse HEAD)
           for b in grafana-deb kafka-tgz firefox-deb; do
-            g fetch --quiet --depth 1 origin "refs/heads/$b:refs/remotes/origin/$b"
+            git fetch --quiet --depth 1 origin "refs/heads/$b:refs/remotes/origin/$b"
             mkdir -p "$W/files/$b"
             git archive "refs/remotes/origin/$b" | tar -x -C "$W/files/$b"
           done
+          rm -f "$k"
           { echo "sha=$sha"; echo "short=${sha:0:7}"; } >> "$GITHUB_OUTPUT"
           echo "course commit $sha"
 
