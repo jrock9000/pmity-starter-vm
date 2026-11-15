@@ -57,7 +57,8 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -q
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q debootstrap qemu-utils qemu-system-x86 grub-pc-bin fdisk sshpass zip gpg
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q debootstrap qemu-utils qemu-system-x86 grub-pc-bin fdisk sshpass zip gpg python3-pil
+          # python3-pil: test-ova.sh reads the login-screen screenshot with PIL (not in ova/README.md's list yet).
           # VirtualBox only writes and reads the .ova here (no VM runs in it); its kernel module may fail to build on this
           # machine's kernel, which VBoxManage export and import --dry-run do not need.
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q virtualbox || true
