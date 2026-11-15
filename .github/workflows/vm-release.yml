@@ -127,6 +127,8 @@ jobs:
         run: |
           set -euo pipefail
           OVA="$W/course/ova/out/pmity-lab.ova"
+          # build-ova.sh, update-ova.sh and test-ova.sh run as root, so their output is root's; this step runs as the runner user.
+          sudo chown -R "$(id -u):$(id -g)" "$W/course/ova/out"
           want=$(sha256sum "$W/course/deliver/pmity-starter-00-meetup.html" | cut -d' ' -f1)
           have=$(cut -d' ' -f1 "$W/course/ova/out/embedded-page.sha256")
           [ "$want" = "$have" ] || { echo "::error::the .ova carries a different course page than this commit's"; exit 1; }
@@ -142,8 +144,18 @@ jobs:
             echo "pieces=$(find "$P" -name "pmity-lab.ova.part*" | wc -l)"
             echo "size=$(awk -v b="$(stat -c %s "$OVA")" 'BEGIN{printf "%.1f GB", b/1e9}')"
           } >> "$GITHUB_OUTPUT"
-          # The instructor guide names the number of pieces and the size; a different build may differ (reported, not fatal).
-          (cd "$W/course/course" && python3 -c "import instructor;print(instructor.OVA_PARTS, instructor.OVA_SIZE)") > "$W/guide.txt" || echo "? ?" > "$W/guide.txt"
+          # The instructor guide gives a size range and accepted piece counts (instructor.OVA_GB, OVA_GB_TOL, OVA_PARTS_OK);
+          # a build outside them is reported in the release notes, not fatal.
+          (cd "$W/course/course" && python3 - "$(stat -c %s "$OVA")" "$(find "$P" -name 'pmity-lab.ova.part*' | wc -l)" <<'PY'
+          import sys, instructor as i
+          gb, parts = int(sys.argv[1]) / 1e9, int(sys.argv[2])
+          lo, hi = i.OVA_GB - i.OVA_GB_TOL, i.OVA_GB + i.OVA_GB_TOL
+          ok = lo <= gb <= hi and parts in i.OVA_PARTS_OK
+          print("" if ok else f"Note for the course: the instructor guide expects {lo:.2f}-{hi:.2f} GB in "
+                f"{' or '.join(map(str, i.OVA_PARTS_OK))} pieces; this image is {gb:.2f} GB in {parts} pieces.")
+          PY
+          ) > "$W/guide-note.txt" || echo "Note for the course: could not read the guide's size range from instructor.py." > "$W/guide-note.txt"
+          cat "$W/guide-note.txt"
 
       - name: Check the pieces the way a student would (pmity-assemble-vm.sh in a fresh folder)
         run: |
@@ -166,11 +178,7 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then echo "release $TAG already exists"; exit 0; fi
-          read -r guide_parts guide_size < "$W/guide.txt"
-          note=""
-          if [ "$guide_parts $guide_size" != "$PIECES $SIZE" ]; then
-            note="Note for the course: the instructor guide says $guide_parts pieces, $guide_size; this image is $PIECES pieces, $SIZE."
-          fi
+          note=$(cat "$W/guide-note.txt")
           checks=$(grep -cE '^(OK|PASS)' "$W/test-ova.log" || true)
           cat > "$W/notes.md" <<EOF
           Class VM for the PMITY Starter one-day course (pmity-starter-00-meetup), Ubuntu 24.04 LTS Desktop, x86-64.
