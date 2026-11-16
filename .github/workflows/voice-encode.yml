@@ -1,0 +1,55 @@
+name: Encode and check the course narration
+
+# Turns the PMITY Starter narration recorded on PMITY Voice (husayn-default, WAV) into the MP3 files the course page
+# plays (cli-notes R9 in jrock9000/pmity-starter-courses), and transcribes each file to catch garbled or dropped words.
+# Runs here, on GitHub's machine, so the media work stays off the IONOS cluster and the workstation.
+#
+# Input: asset starter-voice-wav.tar on the DRAFT release named by `tag` (drafts are visible only to the repository's
+# collaborators). Output: starter-voice-mp3.tar (manifest.json + <key>.mp3) and report.json on the same draft release.
+# Nothing is published.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Draft release tag holding starter-voice-wav.tar"
+        required: true
+        type: string
+
+concurrency:
+  group: voice-encode
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  encode:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools (ffmpeg, faster-whisper, num2words)
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install -q faster-whisper==1.2.1 num2words==0.5.14 numpy
+      - name: Fetch the recording
+        run: |
+          gh release view "$TAG" --json isDraft --jq '.isDraft' | grep -qx true || { echo "::error::$TAG is not a draft release"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/in" && cd "$RUNNER_TEMP/in"
+          gh release download "$TAG" -p starter-voice-wav.tar
+          tar -xf starter-voice-wav.tar && rm starter-voice-wav.tar
+          find out -name "*.wav" | wc -l
+      - name: Encode and transcribe
+        run: |
+          "$RUNNER_TEMP/venv/bin/python" -I voice/encode.py "$RUNNER_TEMP/in" "$RUNNER_TEMP/mp3"
+      - name: Attach the results to the draft release
+        run: |
+          cd "$RUNNER_TEMP/mp3"
+          cp report.json "$RUNNER_TEMP/report.json"
+          tar -cf "$RUNNER_TEMP/starter-voice-mp3.tar" manifest.json ./*.mp3
+          gh release upload "$TAG" "$RUNNER_TEMP/starter-voice-mp3.tar" "$RUNNER_TEMP/report.json" --clobber
