@@ -83,9 +83,10 @@ jobs:
           export GIT_SSH_COMMAND="ssh -i $k -o IdentitiesOnly=yes -o UserKnownHostsFile=$RUNNER_TEMP/known_hosts"
           git clone --quiet --no-checkout --filter=blob:none "git@github.com:${COURSE_REPO}.git" "$W/course"
           cd "$W/course"
-          git fetch --quiet origin "$REF"
-          git checkout --quiet FETCH_HEAD
-          sha=$(git rev-parse HEAD)
+          # REF may be a branch, a full commit or a short commit (git fetch accepts only the first two).
+          sha=$(git rev-parse --verify --quiet "origin/$REF^{commit}" || git rev-parse --verify --quiet "$REF^{commit}" \
+                || { git fetch --quiet origin "$REF" && git rev-parse FETCH_HEAD; })
+          git checkout --quiet "$sha"
           for b in grafana-deb kafka-tgz firefox-deb; do
             git fetch --quiet --depth 1 origin "refs/heads/$b:refs/remotes/origin/$b"
             mkdir -p "$W/files/$b"
