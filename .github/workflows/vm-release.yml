@@ -57,7 +57,12 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -q
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q debootstrap qemu-utils qemu-system-x86 grub-pc-bin fdisk sshpass zip gpg python3-pil
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q debootstrap qemu-utils qemu-system-x86 grub-pc-bin fdisk sshpass zip gpg python3-pil curl
+          # KVM for the lab run (course/checks/labtest_vm.py); GitHub's Linux machines have /dev/kvm but only root may open it.
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules || true
+          sudo udevadm trigger --name-match=kvm || true
+          ls -l /dev/kvm || echo "no /dev/kvm: the lab run uses QEMU's software CPU"
           # python3-pil: test-ova.sh reads the login-screen screenshot with PIL (not in ova/README.md's list yet).
           # VirtualBox only writes and reads the .ova here (no VM runs in it); its kernel module may fail to build on this
           # machine's kernel, which VBoxManage export and import --dry-run do not need.
@@ -122,6 +127,30 @@ jobs:
           sudo ./test-ova.sh 2>&1 | tee "$W/test-ova.log"
           sudo rm -rf test
 
+      - name: Run every lab on the VM (course/checks/labtest_vm.py, cli-notes R10)
+        # Boots a copy of the .ova in QEMU (the .ova itself is only read), runs every lab step over SSH as the student, and
+        # fails the release on any lab failure. The report is kept as a run artifact and attached to the release.
+        run: |
+          set -euo pipefail
+          cd "$W/course"
+          mkdir -p "$W/tmp"
+          before=$(sha256sum ova/out/pmity-lab.ova | cut -d' ' -f1)
+          sudo env TMPDIR="$W/tmp" python3 course/checks/labtest_vm.py ova/out/pmity-lab.ova --report "$W/labtest-vm.report.txt" 2>&1 | tee "$W/labtest-vm.log"
+          sudo chown "$(id -u):$(id -g)" "$W/labtest-vm.report.txt"
+          sudo rm -rf "$W/tmp"
+          [ "$(sha256sum ova/out/pmity-lab.ova | cut -d' ' -f1)" = "$before" ] || { echo "::error::the lab run changed the .ova"; exit 1; }
+          tail -5 "$W/labtest-vm.report.txt"
+
+      - name: Keep the lab report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: labtest-vm-report
+          path: |
+            ${{ env.W }}/labtest-vm.report.txt
+            ${{ env.W }}/labtest-vm.log
+          if-no-files-found: ignore
+
       - name: Pieces, checksum and assemble scripts
         id: pieces
         run: |
@@ -180,6 +209,7 @@ jobs:
           if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then echo "release $TAG already exists"; exit 0; fi
           note=$(cat "$W/guide-note.txt")
           checks=$(grep -cE '^(OK|PASS)' "$W/test-ova.log" || true)
+          labs=$(grep -cE '^PASS' "$W/labtest-vm.report.txt" || true)
           cat > "$W/notes.md" <<EOF
           Class VM for the PMITY Starter one-day course (pmity-starter-00-meetup), Ubuntu 24.04 LTS Desktop, x86-64.
 
@@ -187,9 +217,9 @@ jobs:
 
           - Size: $SIZE in $PIECES pieces
           - SHA-256 of pmity-lab.ova: \`$SHA256\`
-          - Built from course commit ${COURSE_SHA:0:7}; boot test passed ($checks checks)
+          - Built from course commit ${COURSE_SHA:0:7}; boot test passed ($checks checks); every lab run on this VM passed ($labs lab steps, report attached)
           ${note}
           EOF
           gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "Class VM ${TAG#starter-vm-} ($SIZE)" \
-            --notes-file "$W/notes.md" --latest "$W/parts"/*
+            --notes-file "$W/notes.md" --latest "$W/parts"/* "$W/labtest-vm.report.txt"
           echo "Published: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"
