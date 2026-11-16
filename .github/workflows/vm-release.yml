@@ -135,11 +135,11 @@ jobs:
           set -euo pipefail
           cd "$W/course"
           mkdir -p "$W/tmp"
-          before=$(sha256sum ova/out/pmity-lab.ova | cut -d' ' -f1)
+          before=$(sudo sha256sum ova/out/pmity-lab.ova | cut -d' ' -f1)
           sudo env TMPDIR="$W/tmp" python3 course/checks/labtest_vm.py ova/out/pmity-lab.ova --report "$W/labtest-vm.report.txt" 2>&1 | tee "$W/labtest-vm.log"
           sudo chown "$(id -u):$(id -g)" "$W/labtest-vm.report.txt"
           sudo rm -rf "$W/tmp"
-          [ "$(sha256sum ova/out/pmity-lab.ova | cut -d' ' -f1)" = "$before" ] || { echo "::error::the lab run changed the .ova"; exit 1; }
+          [ "$(sudo sha256sum ova/out/pmity-lab.ova | cut -d' ' -f1)" = "$before" ] || { echo "::error::the lab run changed the .ova"; exit 1; }
           tail -5 "$W/labtest-vm.report.txt"
 
       - name: Keep the lab report
