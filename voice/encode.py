@@ -64,7 +64,8 @@ def main(src, dst):
             audio = audio[: len(audio) // (rate // 16000) * (rate // 16000)].reshape(-1, rate // 16000).mean(1)
             segments, _ = model.transcribe(audio, language="en", beam_size=5)
             heard = " ".join(s.text.strip() for s in segments)
-        score = difflib.SequenceMatcher(None, letters(entry["spoken"]), letters(heard)).ratio()
+        # autojunk=False: with the default, long texts treat common letters as junk and score near 0 when nothing is wrong
+        score = difflib.SequenceMatcher(None, letters(entry["spoken"]), letters(heard), autojunk=False).ratio()
         manifest.append({"key": entry["key"], "label": entry["label"], "text": entry["text"], "file": entry["key"] + ".mp3", "ms": ms})
         report.append({"label": entry["label"], "key": entry["key"], "score": round(score, 3), "ms": ms,
                        "bytes": os.path.getsize(mp3), "spoken": entry["spoken"], "heard": heard})
