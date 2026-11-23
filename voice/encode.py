@@ -15,6 +15,9 @@ import difflib, json, os, re, subprocess, sys, tempfile, wave
 
 PASS = 0.90
 GAP_SECONDS = 0.35
+# Owner 2026-11-23: "the voice could be a bit faster". atempo changes speed only (pitch and voice unchanged) and adds no
+# other filter: a second loudness filter is what made the old encode sound hoarse.
+TEMPO = float(os.environ.get("VOICE_TEMPO", "1.10"))
 
 
 def letters(text):
@@ -51,13 +54,13 @@ def main(src, dst):
             continue
         with tempfile.TemporaryDirectory() as tmp:
             joined = os.path.join(tmp, "joined.wav")
-            ms = join(parts, joined)
+            ms = int(join(parts, joined) / TEMPO)   # the MP3 is TEMPO times faster than the joined WAV
             mp3 = os.path.join(dst, entry["key"] + ".mp3")
             # PMITY Voice already levels its output (peaks at -1.5 dBFS), so no loudness filter: a second limiter plus
             # 24 kHz / 48 kbit/s gave 17 dB signal-to-distortion, heard as hoarse static (owner, 2026-11-16).
             # 48 kHz / 128 kbit/s CBR keeps the voice service's sample rate and measures 40 dB on step 1.
             subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", joined,
-                            "-ac", "1", "-ar", "48000", "-c:a", "libmp3lame", "-b:a", "128k", mp3], check=True)
+                            "-filter:a", f"atempo={TEMPO:.3f}", "-ac", "1", "-ar", "48000", "-c:a", "libmp3lame", "-b:a", "128k", mp3], check=True)
             with wave.open(joined) as w:
                 audio = np.frombuffer(w.readframes(w.getnframes()), np.int16).astype(np.float32) / 32768
                 rate = w.getframerate()
