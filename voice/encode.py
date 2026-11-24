@@ -8,7 +8,8 @@ For every text it joins the pieces with a short pause, writes mono MP3 at 48 kHz
 letters only, because a voice model can garble or drop words while its own QA passes them.
 
     python3 voice/encode.py <input dir> <output dir>
-Writes <out>/manifest.json (what the course page reads; cli-notes R9) and <out>/report.json; exit 0 always, the report
+Writes <out>/manifest.json (what the course page reads; cli-notes R9; each entry lists its pieces with the ms each
+starts at in the MP3, for the page to follow the voice) and <out>/report.json; exit 0 always, the report
 lists texts scoring under PASS, which are re-recorded.
 """
 import difflib, json, os, re, subprocess, sys, tempfile, wave
@@ -28,16 +29,23 @@ def letters(text):
 
 
 def join(parts, dest):
+    """join the pieces with GAP_SECONDS of silence; returns (total ms, the ms at which each piece starts) of the joined WAV"""
     with wave.open(parts[0]) as first:
         params = first.getparams()
-    gap = b"\0" * (params.sampwidth * params.nchannels * int(params.framerate * GAP_SECONDS))
+    gap_frames = int(params.framerate * GAP_SECONDS)
+    gap = b"\0" * (params.sampwidth * params.nchannels * gap_frames)
+    starts, frames = [], 0
     with wave.open(dest, "wb") as out:
         out.setparams(params)
         for i, path in enumerate(parts):
             with wave.open(path) as w:
-                out.writeframes((gap if i else b"") + w.readframes(w.getnframes()))
+                frames += gap_frames if i else 0
+                starts.append(frames * 1000 / params.framerate)
+                n = w.getnframes()
+                out.writeframes((gap if i else b"") + w.readframes(n))
+                frames += n
     with wave.open(dest) as w:
-        return round(w.getnframes() * 1000 / w.getframerate())
+        return round(w.getnframes() * 1000 / w.getframerate()), starts
 
 
 def main(src, dst):
@@ -54,7 +62,9 @@ def main(src, dst):
             continue
         with tempfile.TemporaryDirectory() as tmp:
             joined = os.path.join(tmp, "joined.wav")
-            ms = int(join(parts, joined) / TEMPO)   # the MP3 is TEMPO times faster than the joined WAV
+            total, starts = join(parts, joined)
+            ms = int(total / TEMPO)                 # the MP3 is TEMPO times faster than the joined WAV
+            starts = [round(t / TEMPO) for t in starts]
             mp3 = os.path.join(dst, entry["key"] + ".mp3")
             # PMITY Voice already levels its output (peaks at -1.5 dBFS), so no loudness filter: a second limiter plus
             # 24 kHz / 48 kbit/s gave 17 dB signal-to-distortion, heard as hoarse static (owner, 2026-11-16).
@@ -69,7 +79,9 @@ def main(src, dst):
             heard = " ".join(s.text.strip() for s in segments)
         # autojunk=False: with the default, long texts treat common letters as junk and score near 0 when nothing is wrong
         score = difflib.SequenceMatcher(None, letters(entry["spoken"]), letters(heard), autojunk=False).ratio()
-        manifest.append({"key": entry["key"], "label": entry["label"], "text": entry["text"], "file": entry["key"] + ".mp3", "ms": ms})
+        manifest.append({"key": entry["key"], "label": entry["label"], "text": entry["text"], "file": entry["key"] + ".mp3", "ms": ms,
+                         # where each sentence starts in the MP3, so the page can show the block the voice is talking about
+                         "pieces": [{"text": t, "start_ms": st} for t, st in zip(entry.get("pieces") or [""] * len(starts), starts)]})
         report.append({"label": entry["label"], "key": entry["key"], "score": round(score, 3), "ms": ms,
                        "bytes": os.path.getsize(mp3), "spoken": entry["spoken"], "heard": heard})
         print(f"{entry['label']:8} {score:.3f} {ms / 1000:6.1f}s", flush=True)
