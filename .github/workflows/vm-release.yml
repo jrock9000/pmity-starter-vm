@@ -142,6 +142,44 @@ jobs:
           [ "$(sudo sha256sum ova/out/pmity-lab.ova | cut -d' ' -f1)" = "$before" ] || { echo "::error::the lab run changed the .ova"; exit 1; }
           tail -5 "$W/labtest-vm.report.txt"
 
+      - name: Linux Getting Started on the VM (lgs-setup for every topic, then course/lgs/check.py --vm; LGS-3)
+        # The course session's handoff (docs/HANDOFF-LGS.md): every topic's practice data sets up on the real VM, and every
+        # scene, lab and question runs on it over SSH (linuxex/vmrun.py: student@127.0.0.1 -p 12222). A copy of the .ova's
+        # disk is booted; the .ova itself is only read. Any mismatch fails the release before it is published.
+        run: |
+          set -euo pipefail
+          cd "$W/course"
+          sudo apt-get install -y -q python3-pexpect nodejs npm >/dev/null
+          sudo npm install -g playwright@1.49.1 >/dev/null 2>&1
+          npx -y playwright@1.49.1 install --with-deps chromium >/dev/null 2>&1
+          pip install --break-system-packages -q playwright==1.49.1 && python3 -m playwright install chromium >/dev/null
+          export NODE_PATH="$(npm root -g)"
+          # check.py also tests lgs-setup here as the local user student (as course-check.yml sets it up)
+          id student 2>/dev/null || sudo useradd -m -s /bin/bash -u 1000 student 2>/dev/null || sudo useradd -m -s /bin/bash student
+          echo 'student ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/student >/dev/null
+          sudo setfacl -R -b -k /home/student 2>/dev/null || true
+          V="$W/lgsvm"; mkdir -p "$V"
+          sudo tar -xf ova/out/pmity-lab.ova -C "$V" --wildcards '*.vmdk'
+          sudo qemu-img convert -O qcow2 "$V"/*.vmdk "$V/lgs.qcow2"; sudo rm -f "$V"/*.vmdk; sudo chown "$(id -u)" "$V/lgs.qcow2"
+          acc=tcg; [ -w /dev/kvm ] && acc=kvm
+          qemu-system-x86_64 -machine pc -m 4096 -smp 2 -accel $acc -display none -serial file:$V/serial.log \
+            -drive file=$V/lgs.qcow2,if=none,id=d0 -device ahci,id=ahci -device ide-hd,drive=d0,bus=ahci.0 \
+            -netdev user,id=n0,hostfwd=tcp:127.0.0.1:12222-:22 -device e1000,netdev=n0 -vga std -pidfile $V/qemu.pid -daemonize
+          vm() { sshpass -p pmity ssh -p 12222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5 student@127.0.0.1 "$@"; }
+          for i in $(seq 1 90); do vm true 2>/dev/null && break; sleep 10; done
+          vm true
+          bad=0
+          for t in 2 3 4 5 6 7 8 9 10 11 12 13 14 15 99; do
+            out=$(vm "lgs-setup $t" 2>&1 | tail -3); echo "lgs-setup $t: $out"
+            echo "$out" | grep -Eq "ready|nothing to set up" || bad=1
+          done
+          [ $bad = 0 ] || { echo "::error::lgs-setup did not finish on every topic"; kill "$(cat $V/qemu.pid)"; exit 1; }
+          set +e
+          python3 course/lgs/check.py --vm 2>&1 | tee "$W/lgs-check-vm.log"; rc=${PIPESTATUS[0]}
+          set -e
+          kill "$(cat $V/qemu.pid)" 2>/dev/null || true; rm -rf "$V"
+          [ "$rc" = 0 ] || { echo "::error::course/lgs/check.py --vm failed (see lgs-check-vm.log)"; exit 1; }
+
       - name: Keep the lab report
         if: always()
         uses: actions/upload-artifact@v4
@@ -150,6 +188,7 @@ jobs:
           path: |
             ${{ env.W }}/labtest-vm.report.txt
             ${{ env.W }}/labtest-vm.log
+            ${{ env.W }}/lgs-check-vm.log
           if-no-files-found: ignore
 
       - name: Pieces, checksum and assemble scripts
