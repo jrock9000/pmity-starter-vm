@@ -178,9 +178,11 @@ jobs:
           sudo tar -xf ova/out/pmity-lab.ova -C "$V" --wildcards '*.vmdk'
           sudo qemu-img convert -O qcow2 "$V"/*.vmdk "$V/lgs.qcow2"; sudo rm -f "$V"/*.vmdk; sudo chown "$(id -u)" "$V/lgs.qcow2"
           acc=tcg; [ -w /dev/kvm ] && acc=kvm
+          # the NIC in PCI slot 3, as VirtualBox puts it: Ubuntu then names it enp0s3, as the pages show (QEMU default: ens4);
+          # the disk controller goes to slot 0x0d, as in VirtualBox, so it does not take slot 3 first
           qemu-system-x86_64 -machine pc -m 4096 -smp 2 -accel $acc -display none -serial file:$V/serial.log \
-            -drive file=$V/lgs.qcow2,if=none,id=d0 -device ahci,id=ahci -device ide-hd,drive=d0,bus=ahci.0 \
-            -netdev user,id=n0,hostfwd=tcp:127.0.0.1:12222-:22 -device e1000,netdev=n0 -vga std -pidfile $V/qemu.pid -daemonize
+            -drive file=$V/lgs.qcow2,if=none,id=d0 -device ahci,id=ahci,addr=0d -device ide-hd,drive=d0,bus=ahci.0 \
+            -netdev user,id=n0,hostfwd=tcp:127.0.0.1:12222-:22 -device e1000,netdev=n0,addr=03 -vga std -pidfile $V/qemu.pid -daemonize
           vm() { sshpass -p pmity ssh -p 12222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5 student@127.0.0.1 "$@"; }
           for i in $(seq 1 90); do vm true 2>/dev/null && break; sleep 10; done
           vm true
