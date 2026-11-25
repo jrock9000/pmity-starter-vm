@@ -186,8 +186,10 @@ jobs:
           vm true
           bad=0
           for t in 2 3 4 5 6 7 8 9 10 11 12 13 14 15 99; do
-            out=$(vm "lgs-setup $t" 2>&1 | tail -3); echo "lgs-setup $t: $out"
-            echo "$out" | grep -Eq "ready|nothing to set up" || bad=1
+            # the whole output and the exit status are checked: the "ready" line comes before the file list
+            set +e; out=$(vm "lgs-setup $t" 2>&1); st=$?; set -e
+            echo "lgs-setup $t (exit $st):"; echo "$out" | sed 's/^/    /'
+            { [ $st = 0 ] && echo "$out" | grep -Eq "ready|nothing to set up"; } || bad=1
           done
           [ $bad = 0 ] || { echo "::error::lgs-setup did not finish on every topic"; kill "$(cat $V/qemu.pid)"; exit 1; }
           set +e
