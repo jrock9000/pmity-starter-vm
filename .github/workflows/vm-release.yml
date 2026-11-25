@@ -113,6 +113,17 @@ jobs:
       - name: Course pages and kit the VM carries (course/package.sh, without the VM)
         run: cd "$W/course/course" && NO_OVA=1 ./package.sh
 
+      - name: Narration MP3s for the VM (course/voicepack.py fill, from this repository's draft release)
+        # The MP3s are not in Git (cli-notes/voice/manifest.json lists them with SHA-256); the VM carries them on the
+        # Desktop and test-ova.sh checks that every clip the course page plays is there. Each copy is checked.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$W/course"
+          python3 course/voicepack.py fill deliver/voice deliver/instructor/voice deliver/web/voice
+          ls deliver/voice/*.mp3 | wc -l
+
       - name: Build the VM (ova/build-ova.sh, then ova/update-ova.sh as release.sh does)
         run: |
           set -euo pipefail
