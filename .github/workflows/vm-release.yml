@@ -161,11 +161,13 @@ jobs:
           set -euo pipefail
           cd "$W/course"
           # GitHub's machine already has node and npm (apt's npm conflicts with them): only pexpect and playwright are added
+          # the same tools as the course repository's course-check.yml (which runs check.py's page checks every day)
           pip install --break-system-packages -q pexpect
-          sudo npm install -g playwright@1.49.1 >/dev/null 2>&1
-          npx -y playwright@1.49.1 install --with-deps chromium >/dev/null 2>&1
-          pip install --break-system-packages -q playwright==1.49.1 && python3 -m playwright install chromium >/dev/null
+          npm install -g playwright@1.49.1
+          npx -y playwright@1.49.1 install --with-deps chromium
           export NODE_PATH="$(npm root -g)"
+          pip install --break-system-packages -q playwright==1.49.1
+          python3 -m playwright install chromium
           # check.py also tests lgs-setup here as the local user student (as course-check.yml sets it up)
           id student 2>/dev/null || sudo useradd -m -s /bin/bash -u 1000 student 2>/dev/null || sudo useradd -m -s /bin/bash student
           echo 'student ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/student >/dev/null
