@@ -15,10 +15,10 @@ lists texts scoring under PASS, which are re-recorded.
 import difflib, json, os, re, subprocess, sys, tempfile, wave
 
 PASS = 0.90
-GAP_SECONDS = 0.35
-# Owner 2026-11-23: "the voice could be a bit faster". atempo changes speed only (pitch and voice unchanged) and adds no
-# other filter: a second loudness filter is what made the old encode sound hoarse.
-TEMPO = float(os.environ.get("VOICE_TEMPO", "1.10"))
+GAP_SECONDS = 0.25   # the owner's approved Mixed sample (A-mixed, 2026-11-23): a quarter second between sentences
+# Voice A identity rule (owner, 2026-11-24): no tempo substitution. 1.0 = the recording as the voice made it; the
+# ffmpeg speed-up made the narration choppy. Speed changes, if ever wanted, go through the voice service, not here.
+TEMPO = float(os.environ.get("VOICE_TEMPO", "1.0"))
 
 
 def letters(text):
@@ -70,7 +70,7 @@ def main(src, dst):
             # 24 kHz / 48 kbit/s gave 17 dB signal-to-distortion, heard as hoarse static (owner, 2026-11-16).
             # 48 kHz / 128 kbit/s CBR keeps the voice service's sample rate and measures 40 dB on step 1.
             subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", joined,
-                            "-filter:a", f"atempo={TEMPO:.3f}", "-ac", "1", "-ar", "48000", "-c:a", "libmp3lame", "-b:a", "128k", mp3], check=True)
+                            *(["-filter:a", f"atempo={TEMPO:.3f}"] if TEMPO != 1.0 else []), "-ac", "1", "-ar", "48000", "-c:a", "libmp3lame", "-b:a", "128k", mp3], check=True)
             with wave.open(joined) as w:
                 audio = np.frombuffer(w.readframes(w.getnframes()), np.int16).astype(np.float32) / 32768
                 rate = w.getframerate()
