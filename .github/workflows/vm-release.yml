@@ -164,7 +164,9 @@ jobs:
           # the same tools as the course repository's course-check.yml (which runs check.py's page checks every day)
           pip install --break-system-packages -q pexpect
           npm install -g playwright@1.49.1
-          npx -y playwright@1.49.1 install --with-deps chromium
+          # no --with-deps: the VirtualBox install above leaves dpkg half-configured (its kernel module cannot build on
+          # this machine), so any apt-get install here fails; chromium's libraries are already on GitHub's image
+          npx -y playwright@1.49.1 install chromium
           export NODE_PATH="$(npm root -g)"
           pip install --break-system-packages -q playwright==1.49.1
           python3 -m playwright install chromium
