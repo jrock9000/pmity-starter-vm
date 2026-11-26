@@ -9,7 +9,8 @@ mkdir -p "$T/m"
 tar -xf "$OVA" -C "$T" --wildcards '*.vmdk'
 qemu-img convert -O raw "$T"/*.vmdk "$T/disk.raw"; rm -f "$T"/*.vmdk
 L=$(losetup -f --show -P -r "$T/disk.raw")
-P=$(lsblk -lnbo NAME,FSTYPE,SIZE "$L" | awk '$2=="ext4"{print $3, $1}' | sort -n | tail -1 | cut -d' ' -f2)
+P=$(lsblk -lnbo NAME,SIZE,TYPE "$L" | awk '$3=="part"{print $2, $1}' | sort -n | tail -1 | cut -d' ' -f2)
+[ -n "$P" ] || { lsblk "$L"; echo "no partition found"; exit 1; }
 mount -o ro,noload "/dev/$P" "$T/m"
 echo "== used on the disk"; df -B1M --output=used,size "$T/m" | tail -1
 echo "== folders over 40 MB (3 levels)"
