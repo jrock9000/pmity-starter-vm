@@ -46,6 +46,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     steps:
+      - name: This repository's helper scripts
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+
       - name: Room to build (the image needs about 15 GB)
         run: |
           set -euo pipefail
@@ -131,6 +136,12 @@ jobs:
           sudo ./build-ova.sh
           sudo ./update-ova.sh
           ls -l out/
+
+      - name: What takes the space in the .ova (folders and packages; LGS-3 size check)
+        run: |
+          set -euo pipefail
+          sudo "$GITHUB_WORKSPACE/.github/scripts/ova-size-report.sh" "$W/course/ova/out/pmity-lab.ova" "$W/size" 2>&1 | tee "$W/ova-size.txt"
+          sudo rm -rf "$W/size"
 
       - name: Boot-test the .ova (ova/test-ova.sh)
         run: |
