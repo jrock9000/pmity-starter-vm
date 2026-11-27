@@ -233,7 +233,7 @@ jobs:
           have=$(cut -d' ' -f1 "$W/course/ova/out/embedded-page.sha256")
           [ "$want" = "$have" ] || { echo "::error::the .ova carries a different course page than this commit's"; exit 1; }
           P="$W/parts"; rm -rf "$P"; mkdir -p "$P"
-          split -b 350M -d -a 1 "$OVA" "$P/pmity-lab.ova.part"
+          split -b 350M -d -a 2 "$OVA" "$P/pmity-lab.ova.part"   # part00, part01, ...: 11 pieces since the Linux Getting Started narration (owner, 2026-11-26)
           (cd "$(dirname "$OVA")" && sha256sum pmity-lab.ova) > "$P/pmity-lab.ova.sha256"
           (cd "$W/course/course" && python3 assemble/make.py "$P" "$OVA")
           ls -l "$P"

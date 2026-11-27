@@ -4,9 +4,9 @@ name: Encode and check the course narration
 # plays (cli-notes R9 in jrock9000/pmity-starter-courses), and transcribes each file to catch garbled or dropped words.
 # Runs here, on GitHub's machine, so the media work stays off the IONOS cluster and the workstation.
 #
-# Input: asset starter-voice-wav.tar on the DRAFT release named by `tag` (drafts are visible only to the repository's
-# collaborators). Output: starter-voice-mp3.tar (manifest.json + <key>.mp3) and report.json on the same draft release.
-# Nothing is published.
+# Input: asset <set>-voice-wav.tar on the DRAFT release named by `tag` (drafts are visible only to the repository's
+# collaborators). Output: <set>-voice-mp3.tar (manifest.json + <key>.mp3) and a report on the same draft release:
+# report.json for the Starter course (set=starter), lgs-report.json for Linux Getting Started (set=lgs). Nothing is published.
 
 on:
   workflow_dispatch:
@@ -15,6 +15,12 @@ on:
         description: "Draft release tag holding starter-voice-wav.tar"
         required: true
         type: string
+      set:
+        description: "Which narration: starter (the Starter course) or lgs (Linux Getting Started)"
+        required: false
+        default: starter
+        type: choice
+        options: [starter, lgs]
 
 concurrency:
   group: voice-encode
@@ -31,6 +37,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       TAG: ${{ inputs.tag }}
+      SET: ${{ inputs.set || 'starter' }}
     steps:
       - uses: actions/checkout@v4
       - name: Tools (ffmpeg, faster-whisper, num2words)
@@ -42,8 +49,8 @@ jobs:
         run: |
           gh release view "$TAG" --json isDraft --jq '.isDraft' | grep -qx true || { echo "::error::$TAG is not a draft release"; exit 1; }
           mkdir -p "$RUNNER_TEMP/in" && cd "$RUNNER_TEMP/in"
-          gh release download "$TAG" -p starter-voice-wav.tar
-          tar -xf starter-voice-wav.tar && rm starter-voice-wav.tar
+          gh release download "$TAG" -p "$SET-voice-wav.tar"
+          tar -xf "$SET-voice-wav.tar" && rm "$SET-voice-wav.tar"
           find out -name "*.wav" | wc -l
       - name: Encode and transcribe
         run: |
@@ -51,6 +58,7 @@ jobs:
       - name: Attach the results to the draft release
         run: |
           cd "$RUNNER_TEMP/mp3"
-          cp report.json "$RUNNER_TEMP/report.json"
-          tar -cf "$RUNNER_TEMP/starter-voice-mp3.tar" manifest.json ./*.mp3
-          gh release upload "$TAG" "$RUNNER_TEMP/starter-voice-mp3.tar" "$RUNNER_TEMP/report.json" --clobber
+          R=report.json; [ "$SET" = starter ] || R="$SET-report.json"
+          cp report.json "$RUNNER_TEMP/$R"
+          tar -cf "$RUNNER_TEMP/$SET-voice-mp3.tar" manifest.json ./*.mp3
+          gh release upload "$TAG" "$RUNNER_TEMP/$SET-voice-mp3.tar" "$RUNNER_TEMP/$R" --clobber
